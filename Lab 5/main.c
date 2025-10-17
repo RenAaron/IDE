@@ -4,103 +4,70 @@
 #include "timers.h"
 #include "ti/devices/msp/m0p/mspm0g350x.h"
 #include "adc12.h"
+#include "camera.h"
 
-int pressed_1 = 0;
-int pressed_2 = 0;
-int ms_1 = 0;
-int ms_2 = 0;
-int color_counter = 0;
-
-COLOR c_color[] = {RED, GREEN, BLUE, CYAN, MAGENTA, YELLOW, WHITE};
-
-void GROUP1_IRQHandler(){
+void GROUP1_IRQHandler(){ 
     
-    if (S2_pressed()){
-        
-        if(pressed_2 == 1){
-            UART0_put((uint8_t *)"(tim2) Timed: ");
-            UART0_printDec(ms_2);
-            UART0_put((uint8_t *)" ms");
-            UART0_putchar('\n');
-            UART0_putchar('\r');
-            pressed_2 = 0;
-            ms_2 = 0;
-            LED2_set(CLEAR);
+}
+
+void TIMG0_IRQHandler(){
+    // GPIOA->DOUTSET31_0 |= GPIO_DOUTSET31_0_DIO12_SET; 
+        // GPIOA->DOUTCLR31_0 |= GPIO_DOUTCLR31_0_DIO12_CLR;
+    
+        GPIOA->DOUTTGL31_0 |= GPIO_DOUTTGL31_0_DIO12_TOGGLE;
+    
+    if(GPIOA->DOUT31_0 & GPIO_DOUTSET31_0_DIO12_SET){ // if clk high 
+        if(pixelCounter <= 127){
+            cameraData[pixelCounter] = ADC0_getVal(); // add value to buffer
+            pixelCounter++;
         } else{
-            pressed_2 = 1;
-            LED2_set(CLEAR);
-            LED2_set(c_color[color_counter % 7]);
-            color_counter++;
+            pixelCounter = 0; // reset index 
+            cameraData_complete = 1; // set done flag
+            TIMG0->COUNTERREGS.CTRCTL &= ~GPTIMER_CTRCTL_EN_ENABLED; // STOP TIMG6 
         }
-        
-    }
-    
-    if(S1_pressed()){
-        if(pressed_1 == 1){
-            UART0_put((uint8_t *)"(tim1) Timed: ");
-            UART0_printDec(ms_1);
-            UART0_put((uint8_t *)" ms");
-            UART0_putchar('\n');
-            UART0_putchar('\r');
-            pressed_1 = 0;
-            ms_1 = 0;
-            LED1_set(OFF);
-        } else{
-                pressed_1 = 1;
-        }
-    } 
-    
+    }    
 }
 
 void TIMG6_IRQHandler(){
     
-				uint32_t adc_val = ADC0_getVal();
-        // float p_val = ((3300*adc_val)/4096.0 - 500)/10; 
-        UART0_printDec(adc_val);
-        UART0_putchar('\n');
-        UART0_putchar('\r');
+        if(GPIOA->DOUT31_0 & GPIO_DOUTSET31_0_DIO12_SET){ // if clock is high 
+            GPIOA->DOUTCLR31_0 = GPIO_DOUTCLR31_0_DIO12_CLR; // clear clock 
+        }
+        
+    GPIOA->DOUTSET31_0 = GPIO_DOUTSET31_0_DIO28_SET; // set SI high 
+    GPIOA->DOUTSET31_0 = GPIO_DOUTSET31_0_DIO12_SET; // set CLK high  
+         
+    GPIOA->DOUTCLR31_0 = GPIO_DOUTSET31_0_DIO28_SET; // set SI low 
+    GPIOA->DOUTCLR31_0 = GPIO_DOUTSET31_0_DIO12_SET; // set CLK low 
+    
+    TIMG0->COUNTERREGS.CTRCTL |= GPTIMER_CTRCTL_EN_ENABLED; // enable TIMG0
+    
 }
 
 void TIMG12_IRQHandler(){
-    if(pressed_1){
-        ms_1++;
-    }
     
-    if(pressed_2){
-        ms_2++;
-    }
     
 }
 
 int main(){
     
     UART0_init();
-  LED1_init();
-  LED2_init();
-    
-  UART0_putchar('\n');
-  UART0_putchar('\r');
-    
-  TIMG6_init(62000, GPTIMER_CPSV_CPSVAL_MAXIMUM);
-  TIMG12_init(32000);
-  S1_init_interrupt();
-  S2_init_interrupt();
     
     ADC0_init();
     
-    while(1){
-        
-    }
+    Camera_init();
     
-    /*
     while(1){
-        UART0_printDec((int) ADC0_getVal);
-        // UART0_printDec(72);
-        UART0_putchar('\n');
-        UART0_putchar('\r');
+        while(Camera_isDataReady()){
+            UART0_put((uint8_t *)"-1\r\n");
+            
+            for(int i = 0; i < 128; i++){
+                UART0_printDec(Camera_getData()[i]);
+                UART0_put((uint8_t *)"\r\n");
+            }
+            UART0_put((uint8_t *)"-2\r\n");
+        }
     }
-    
-    */
 
     return 0;
 }
